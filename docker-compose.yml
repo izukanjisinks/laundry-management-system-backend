@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: laundry_postgres
+    environment:
+      POSTGRES_USER: laundry_user
+      POSTGRES_PASSWORD: laundry_password
+      POSTGRES_DB: laundry_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U laundry_user -d laundry_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: laundry_api
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: laundry_user
+      DB_PASSWORD: laundry_password
+      DB_NAME: laundry_db
+      DB_SSLMODE: disable
+      JWT_SECRET: dev-secret-key-change-in-production
+      PORT: 8080
+      ENVIRONMENT: development
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: go run ./cmd/api/main.go
+
+volumes:
+  postgres_data:
