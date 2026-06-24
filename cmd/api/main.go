@@ -9,9 +9,11 @@ import (
 	"laundry-system/internal/config"
 	"laundry-system/internal/database"
 	"laundry-system/internal/handlers"
+	"laundry-system/internal/models"
 	"laundry-system/internal/repository"
 	"laundry-system/internal/routes"
 	"laundry-system/internal/services"
+	"laundry-system/internal/utils"
 	"laundry-system/internal/utils/email"
 )
 
@@ -40,6 +42,30 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--migrate-only" {
 		log.Println("Migration-only mode — exiting")
 		return
+	}
+
+	// Seed admin user if not exists
+	if cfg.AdminEmail != "" && cfg.AdminPassword != "" {
+		roleRepo := repository.NewRoleRepository()
+		userRepo := repository.NewUserRepository()
+		if existing, _ := userRepo.GetByEmail(cfg.AdminEmail); existing == nil {
+			if adminRole, err := roleRepo.GetByName(models.RoleAdmin); err == nil {
+				if hashed, err := utils.HashPassword(cfg.AdminPassword); err == nil {
+					admin := &models.User{
+						FullName: "System Admin",
+						Email:    cfg.AdminEmail,
+						Password: hashed,
+						RoleID:   adminRole.ID,
+						IsActive: true,
+					}
+					if err := userRepo.Create(admin); err == nil {
+						log.Printf("✓ Admin user seeded: %s", cfg.AdminEmail)
+					}
+				}
+			}
+		} else {
+			log.Printf("✓ Admin user already exists: %s", cfg.AdminEmail)
+		}
 	}
 
 	// Email service
