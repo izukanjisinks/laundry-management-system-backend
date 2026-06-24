@@ -74,7 +74,7 @@ services:
   # ── Frontend (Vue SPA served via nginx) ────────────────────────────────────
   washpoint-frontend:
     build:
-      context: ../laungry-management-system-frontend
+      context: ../laundry-management-system-frontend
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: /api
