@@ -1,46 +1,71 @@
-version: '3.8'
-
 services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
-    container_name: laundry_postgres
+    container_name: washpoint-postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: laundry_user
-      POSTGRES_PASSWORD: laundry_password
-      POSTGRES_DB: laundry_db
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-laundry_db}
     ports:
-      - "5432:5432"
+      - "${DB_EXTERNAL_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U laundry_user -d laundry_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-laundry_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  api:
+  # ── Go API ──────────────────────────────────────────────────────────────────
+  washpoint-api:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: laundry_api
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: laundry_user
-      DB_PASSWORD: laundry_password
-      DB_NAME: laundry_db
-      DB_SSLMODE: disable
-      JWT_SECRET: dev-secret-key-change-in-production
-      PORT: 8080
-      ENVIRONMENT: development
-    ports:
-      - "8080:8080"
+    container_name: washpoint-api
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
-    volumes:
-      - .:/app
-    command: go run ./cmd/api/main.go
+    ports:
+      - "${API_PORT:-8080}:8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-laundry_db}
+      DB_SSLMODE: disable
+      PORT: 8080
+      ENVIRONMENT: production
+      JWT_SECRET: ${JWT_SECRET}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      EMAIL_HOST: ${EMAIL_HOST:-smtp.gmail.com}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_USERNAME: ${EMAIL_USERNAME}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD}
+      EMAIL_FROM: ${EMAIL_FROM}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-WashPoint}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-true}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
+      EMAIL_AUTH_METHOD: ${EMAIL_AUTH_METHOD:-PLAIN}
+
+  # ── Frontend (Vue SPA served via nginx) ────────────────────────────────────
+  washpoint-frontend:
+    build:
+      context: ../laungry-management-system-frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    container_name: washpoint-frontend
+    restart: unless-stopped
+    depends_on:
+      - washpoint-api
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
 
 volumes:
   postgres_data:
