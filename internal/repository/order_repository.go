@@ -226,7 +226,7 @@ func (r *OrderRepository) Summary() (map[string]interface{}, error) {
 	err = r.db.QueryRow(`
 		SELECT COALESCE(SUM(total_price), 0)
 		FROM orders
-		WHERE status = 'picked_up' AND picked_up_at::date = CURRENT_DATE
+		WHERE payment_status = 'paid' AND received_at::date = CURRENT_DATE
 	`).Scan(&todayRevenue)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get today's revenue: %w", err)
