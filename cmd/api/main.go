@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 
 	"laundry-system/internal/config"
 	"laundry-system/internal/database"
@@ -32,17 +31,6 @@ func main() {
 	defer database.Close()
 	log.Println("✓ Database connected")
 
-	// Run migrations
-	if err := database.RunMigrations(database.MigrationsDir()); err != nil {
-		log.Fatalf("Failed to run migrations: %v", err)
-	}
-	log.Println("✓ Migrations completed")
-
-	// Exit after migrations if --migrate-only flag is passed
-	if len(os.Args) > 1 && os.Args[1] == "--migrate-only" {
-		log.Println("Migration-only mode — exiting")
-		return
-	}
 
 	// Seed admin user if not exists
 	if cfg.AdminEmail != "" && cfg.AdminPassword != "" {
