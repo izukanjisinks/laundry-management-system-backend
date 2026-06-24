@@ -10,6 +10,7 @@ import (
 
 func Setup(
 	authHandler *handlers.AuthHandler,
+	catalogHandler *handlers.CatalogHandler,
 	customerHandler *handlers.CustomerHandler,
 	orderHandler *handlers.OrderHandler,
 	userHandler *handlers.UserHandler,
@@ -20,6 +21,7 @@ func Setup(
 
 	// Public routes
 	registerAuthRoutes(mux, authHandler)
+	registerCatalogRoutes(mux, catalogHandler)
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

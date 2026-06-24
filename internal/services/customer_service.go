@@ -2,17 +2,20 @@ package services
 
 import (
 	"fmt"
+	"log"
 
 	"laundry-system/internal/models"
 	"laundry-system/internal/repository"
+	"laundry-system/internal/utils/email"
 )
 
 type CustomerService struct {
 	customerRepo *repository.CustomerRepository
+	emailSvc     *email.EmailService
 }
 
-func NewCustomerService(customerRepo *repository.CustomerRepository) *CustomerService {
-	return &CustomerService{customerRepo: customerRepo}
+func NewCustomerService(customerRepo *repository.CustomerRepository, emailSvc *email.EmailService) *CustomerService {
+	return &CustomerService{customerRepo: customerRepo, emailSvc: emailSvc}
 }
 
 func (s *CustomerService) Create(c *models.Customer) error {
@@ -29,7 +32,20 @@ func (s *CustomerService) Create(c *models.Customer) error {
 		return fmt.Errorf("a customer with phone %s already exists", c.Phone)
 	}
 
-	return s.customerRepo.Create(c)
+	if err := s.customerRepo.Create(c); err != nil {
+		return err
+	}
+
+	if c.Email != "" && s.emailSvc != nil {
+		go func() {
+			body := email.CustomerWelcomeTemplate(c.Name)
+			if err := s.emailSvc.SendEmail([]string{c.Email}, "Welcome to WashPoint! 🎉", body); err != nil {
+				log.Printf("[EMAIL] Failed to send welcome email to %s: %v", c.Email, err)
+			}
+		}()
+	}
+
+	return nil
 }
 
 func (s *CustomerService) GetByID(id string) (*models.Customer, error) {

@@ -121,6 +121,40 @@ func (h *OrderHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	utils.RespondJSON(w, http.StatusOK, map[string]string{"message": "Order deleted successfully"})
 }
 
+func (h *OrderHandler) UpdatePayment(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var body struct {
+		PaymentStatus string `json:"payment_status"`
+		PaymentMethod string `json:"payment_method"`
+	}
+	if err := utils.DecodeJSON(r, &body); err != nil {
+		utils.RespondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if body.PaymentStatus == "" {
+		utils.RespondError(w, http.StatusBadRequest, "payment_status is required")
+		return
+	}
+
+	err := h.orderService.UpdatePayment(
+		id,
+		models.PaymentStatus(body.PaymentStatus),
+		models.PaymentMethod(body.PaymentMethod),
+	)
+	if err != nil {
+		utils.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	order, err := h.orderService.GetByID(id)
+	if err != nil {
+		utils.RespondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	utils.RespondJSON(w, http.StatusOK, order)
+}
+
 func (h *OrderHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	summary, err := h.orderService.Summary()
 	if err != nil {
@@ -128,4 +162,13 @@ func (h *OrderHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	utils.RespondJSON(w, http.StatusOK, summary)
+}
+
+func (h *OrderHandler) NotifyReady(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := h.orderService.NotifyReady(id); err != nil {
+		utils.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	utils.RespondJSON(w, http.StatusOK, map[string]string{"message": "Notification sent"})
 }

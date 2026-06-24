@@ -12,6 +12,7 @@ import (
 	"laundry-system/internal/repository"
 	"laundry-system/internal/routes"
 	"laundry-system/internal/services"
+	"laundry-system/internal/utils/email"
 )
 
 func main() {
@@ -41,26 +42,32 @@ func main() {
 		return
 	}
 
+	// Email service
+	emailSvc := email.NewEmailService(&cfg.Email)
+
 	// Repositories
 	userRepo := repository.NewUserRepository()
 	roleRepo := repository.NewRoleRepository()
 	customerRepo := repository.NewCustomerRepository()
 	orderRepo := repository.NewOrderRepository()
+	catalogRepo := repository.NewCatalogRepository()
 
 	// Services
 	authService := services.NewAuthService(userRepo, roleRepo)
-	customerService := services.NewCustomerService(customerRepo)
-	orderService := services.NewOrderService(orderRepo, customerRepo)
+	catalogService := services.NewCatalogService(catalogRepo)
+	customerService := services.NewCustomerService(customerRepo, emailSvc)
+	orderService := services.NewOrderService(orderRepo, customerRepo, emailSvc)
 	userService := services.NewUserService(userRepo, roleRepo)
 
 	// Handlers
 	authHandler := handlers.NewAuthHandler(authService)
+	catalogHandler := handlers.NewCatalogHandler(catalogService)
 	customerHandler := handlers.NewCustomerHandler(customerService)
 	orderHandler := handlers.NewOrderHandler(orderService)
 	userHandler := handlers.NewUserHandler(userService)
 
 	// Router
-	router := routes.Setup(authHandler, customerHandler, orderHandler, userHandler, userRepo, roleRepo)
+	router := routes.Setup(authHandler, catalogHandler, customerHandler, orderHandler, userHandler, userRepo, roleRepo)
 
 	addr := fmt.Sprintf(":%s", cfg.Port)
 	log.Printf("✓ Server listening on http://localhost%s\n", addr)

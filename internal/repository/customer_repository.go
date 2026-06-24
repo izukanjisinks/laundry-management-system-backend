@@ -35,12 +35,16 @@ func (r *CustomerRepository) GetByID(id string) (*models.Customer, error) {
 	c := &models.Customer{}
 	var email, address, notes sql.NullString
 	query := `
-		SELECT id, name, phone, email, address, notes, created_at, updated_at
-		FROM customers WHERE id = $1
+		SELECT c.id, c.name, c.phone, c.email, c.address, c.notes, c.created_at, c.updated_at,
+		       COUNT(o.id) AS total_orders
+		FROM customers c
+		LEFT JOIN orders o ON o.customer_id = c.id
+		WHERE c.id = $1
+		GROUP BY c.id
 	`
 	err := r.db.QueryRow(query, id).Scan(
 		&c.ID, &c.Name, &c.Phone, &email, &address, &notes,
-		&c.CreatedAt, &c.UpdatedAt,
+		&c.CreatedAt, &c.UpdatedAt, &c.TotalOrders,
 	)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("customer not found")
@@ -83,17 +87,23 @@ func (r *CustomerRepository) List(search string) ([]models.Customer, error) {
 
 	if search != "" {
 		query := `
-			SELECT id, name, phone, email, address, notes, created_at, updated_at
-			FROM customers
-			WHERE name ILIKE $1 OR phone ILIKE $1
-			ORDER BY name ASC
+			SELECT c.id, c.name, c.phone, c.email, c.address, c.notes, c.created_at, c.updated_at,
+			       COUNT(o.id) AS total_orders
+			FROM customers c
+			LEFT JOIN orders o ON o.customer_id = c.id
+			WHERE c.name ILIKE $1 OR c.phone ILIKE $1
+			GROUP BY c.id
+			ORDER BY c.name ASC
 		`
 		rows, err = r.db.Query(query, "%"+search+"%")
 	} else {
 		query := `
-			SELECT id, name, phone, email, address, notes, created_at, updated_at
-			FROM customers
-			ORDER BY name ASC
+			SELECT c.id, c.name, c.phone, c.email, c.address, c.notes, c.created_at, c.updated_at,
+			       COUNT(o.id) AS total_orders
+			FROM customers c
+			LEFT JOIN orders o ON o.customer_id = c.id
+			GROUP BY c.id
+			ORDER BY c.name ASC
 		`
 		rows, err = r.db.Query(query)
 	}
@@ -108,7 +118,7 @@ func (r *CustomerRepository) List(search string) ([]models.Customer, error) {
 		var email, address, notes sql.NullString
 		if err := rows.Scan(
 			&c.ID, &c.Name, &c.Phone, &email, &address, &notes,
-			&c.CreatedAt, &c.UpdatedAt,
+			&c.CreatedAt, &c.UpdatedAt, &c.TotalOrders,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan customer: %w", err)
 		}

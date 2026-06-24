@@ -2,18 +2,23 @@ package services
 
 import (
 	"fmt"
+	"log"
+	"math"
+	"strings"
 
 	"laundry-system/internal/models"
 	"laundry-system/internal/repository"
+	"laundry-system/internal/utils/email"
 )
 
 type OrderService struct {
 	orderRepo    *repository.OrderRepository
 	customerRepo *repository.CustomerRepository
+	emailSvc     *email.EmailService
 }
 
-func NewOrderService(orderRepo *repository.OrderRepository, customerRepo *repository.CustomerRepository) *OrderService {
-	return &OrderService{orderRepo: orderRepo, customerRepo: customerRepo}
+func NewOrderService(orderRepo *repository.OrderRepository, customerRepo *repository.CustomerRepository, emailSvc *email.EmailService) *OrderService {
+	return &OrderService{orderRepo: orderRepo, customerRepo: customerRepo, emailSvc: emailSvc}
 }
 
 func (s *OrderService) Create(o *models.Order) error {
@@ -40,10 +45,13 @@ func (s *OrderService) Create(o *models.Order) error {
 		return fmt.Errorf("customer not found")
 	}
 
-	// Calculate total if not set
-	if o.TotalPrice == 0 {
-		o.TotalPrice = calculateTotal(o.Items)
+	// Calculate subtotal, tax, total
+	o.Subtotal = calculateSubtotal(o.Items)
+	if o.TaxRate == 0 {
+		o.TaxRate = 0.075
 	}
+	o.TaxAmount = roundTo2(o.Subtotal * o.TaxRate)
+	o.TotalPrice = roundTo2(o.Subtotal + o.TaxAmount)
 
 	o.Status = models.OrderStatusReceived
 	return s.orderRepo.Create(o)
@@ -59,7 +67,7 @@ func (s *OrderService) List(status string) ([]models.Order, error) {
 		valid := map[string]bool{
 			string(models.OrderStatusReceived): true,
 			string(models.OrderStatusWashing):  true,
-			string(models.OrderStatusDone):     true,
+			string(models.OrderStatusReady):     true,
 			string(models.OrderStatusPickedUp): true,
 		}
 		if !valid[status] {
@@ -115,7 +123,14 @@ func (s *OrderService) Update(id string, updates *models.Order) (*models.Order, 
 
 	order.Items = updates.Items
 	order.Notes = updates.Notes
-	order.TotalPrice = calculateTotal(updates.Items)
+	order.ServiceType = updates.ServiceType
+	order.DueAt = updates.DueAt
+	order.Subtotal = calculateSubtotal(updates.Items)
+	if order.TaxRate == 0 {
+		order.TaxRate = 0.075
+	}
+	order.TaxAmount = roundTo2(order.Subtotal * order.TaxRate)
+	order.TotalPrice = roundTo2(order.Subtotal + order.TaxAmount)
 
 	if err := s.orderRepo.Update(order); err != nil {
 		return nil, err
@@ -134,19 +149,90 @@ func (s *OrderService) Delete(id string) error {
 	return s.orderRepo.Delete(id)
 }
 
+func (s *OrderService) UpdatePayment(id string, paymentStatus models.PaymentStatus, paymentMethod models.PaymentMethod) error {
+	validStatus := map[models.PaymentStatus]bool{
+		models.PaymentStatusUnpaid:  true,
+		models.PaymentStatusPartial: true,
+		models.PaymentStatusPaid:    true,
+	}
+	if !validStatus[paymentStatus] {
+		return fmt.Errorf("invalid payment_status: %s", paymentStatus)
+	}
+	if paymentStatus != models.PaymentStatusUnpaid && paymentMethod == "" {
+		return fmt.Errorf("payment_method is required when payment_status is %s", paymentStatus)
+	}
+	if _, err := s.orderRepo.GetByID(id); err != nil {
+		return err
+	}
+	return s.orderRepo.UpdatePayment(id, paymentStatus, paymentMethod)
+}
+
 func (s *OrderService) Summary() (map[string]interface{}, error) {
 	return s.orderRepo.Summary()
 }
 
-func calculateTotal(items []models.OrderItem) float64 {
+func calculateSubtotal(items []models.OrderItem) float64 {
 	var total float64
 	for _, item := range items {
 		total += float64(item.Qty) * item.Price
 	}
-	return total
+	return roundTo2(total)
+}
+
+func roundTo2(v float64) float64 {
+	return math.Round(v*100) / 100
 }
 
 func mustNextStatus(s models.OrderStatus) models.OrderStatus {
 	next, _ := s.NextStatus()
 	return next
+}
+
+// NotifyReady sends a pickup-ready email to the customer for the given order.
+func (s *OrderService) NotifyReady(orderID string) error {
+	order, err := s.orderRepo.GetByID(orderID)
+	if err != nil {
+		return fmt.Errorf("order not found")
+	}
+	if order.Status != models.OrderStatusReady {
+		return fmt.Errorf("order is not ready for pickup")
+	}
+	if order.Customer == nil || order.Customer.Email == "" {
+		return fmt.Errorf("customer has no email address on file")
+	}
+
+	serviceLabels := map[models.ServiceType]string{
+		models.ServiceTypeWashFold: "Wash & Fold",
+		models.ServiceTypeDryClean: "Dry Clean",
+		models.ServiceTypeIroning:  "Ironing",
+		models.ServiceTypeWashIron: "Wash & Iron",
+	}
+	serviceLabel := serviceLabels[order.ServiceType]
+	if serviceLabel == "" {
+		serviceLabel = strings.ToUpper(string(order.ServiceType))
+	}
+
+	type item = struct {
+		Name string
+		Qty  int
+	}
+	items := make([]item, len(order.Items))
+	for i, it := range order.Items {
+		items[i] = item{Name: it.Name, Qty: it.Qty}
+	}
+
+	orderNumber := fmt.Sprintf("WP-%d", order.OrderNumber)
+	body := email.OrderReadyTemplate(order.Customer.Name, orderNumber, serviceLabel, items)
+
+	go func() {
+		if err := s.emailSvc.SendEmail(
+			[]string{order.Customer.Email},
+			fmt.Sprintf("Your laundry is ready for pickup — %s", orderNumber),
+			body,
+		); err != nil {
+			log.Printf("[EMAIL] Failed to send pickup-ready email for order %s: %v", orderID, err)
+		}
+	}()
+
+	return nil
 }

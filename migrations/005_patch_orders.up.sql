@@ -1,0 +1,1 @@
+-- Superseded by 004_create_orders.up.sql which already includes all columns and enum values added here.

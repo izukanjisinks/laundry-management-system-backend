@@ -31,6 +31,15 @@ func Connect(connStr string) error {
 }
 
 func RunMigrations(migrationsDir string) error {
+	// Ensure the tracking table exists
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		filename   TEXT PRIMARY KEY,
+		applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	if err != nil {
+		return fmt.Errorf("failed to create schema_migrations table: %w", err)
+	}
+
 	// Find all *.up.sql files and sort them by filename (001_, 002_, ...)
 	pattern := filepath.Join(migrationsDir, "*.up.sql")
 	files, err := filepath.Glob(pattern)
@@ -43,16 +52,31 @@ func RunMigrations(migrationsDir string) error {
 	sort.Strings(files)
 
 	for _, file := range files {
+		name := filepath.Base(file)
+
+		var applied bool
+		if err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE filename = $1)`, name).Scan(&applied); err != nil {
+			return fmt.Errorf("failed to check migration status for %s: %w", name, err)
+		}
+		if applied {
+			log.Printf("  skipping migration (already applied): %s", name)
+			continue
+		}
+
 		content, err := os.ReadFile(file)
 		if err != nil {
-			return fmt.Errorf("failed to read migration file %s: %w", file, err)
+			return fmt.Errorf("failed to read migration file %s: %w", name, err)
 		}
 
 		if _, err := db.Exec(string(content)); err != nil {
-			return fmt.Errorf("failed to execute migration %s: %w", filepath.Base(file), err)
+			return fmt.Errorf("failed to execute migration %s: %w", name, err)
 		}
 
-		log.Printf("✓ Applied migration: %s", filepath.Base(file))
+		if _, err := db.Exec(`INSERT INTO schema_migrations (filename) VALUES ($1)`, name); err != nil {
+			return fmt.Errorf("failed to record migration %s: %w", name, err)
+		}
+
+		log.Printf("✓ Applied migration: %s", name)
 	}
 
 	log.Println("All migrations completed successfully")
