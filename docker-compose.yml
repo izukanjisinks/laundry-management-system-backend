@@ -83,7 +83,7 @@ services:
     depends_on:
       - washpoint-api
     ports:
-      - "${FRONTEND_PORT:-3000}:80"
+      - "${FRONTEND_PORT:-3003}:80"
 
 volumes:
   postgres_data:
